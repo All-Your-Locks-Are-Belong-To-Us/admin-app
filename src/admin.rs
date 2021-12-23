@@ -1,12 +1,9 @@
+use apdu_dispatch::iso7816::Status;
+use apdu_dispatch::{app as apdu, command, response, Command};
 use core::{convert::TryInto, marker::PhantomData};
 use ctaphid_dispatch::app::{self as hid, Command as HidCommand, Message};
 use ctaphid_dispatch::command::VendorCommand;
-use apdu_dispatch::{Command, command, response, app as apdu};
-use apdu_dispatch::iso7816::Status;
-use trussed::{
-    syscall,
-    Client as TrussedClient,
-};
+use trussed::{syscall, Client as TrussedClient};
 
 const UPDATE: VendorCommand = VendorCommand::H51;
 const REBOOT: VendorCommand = VendorCommand::H53;
@@ -34,8 +31,9 @@ pub trait Reboot {
 }
 
 pub struct App<T, R>
-where T: TrussedClient,
-      R: Reboot,
+where
+    T: TrussedClient,
+    R: Reboot,
 {
     trussed: T,
     uuid: [u8; 16],
@@ -44,24 +42,29 @@ where T: TrussedClient,
 }
 
 impl<T, R> App<T, R>
-where T: TrussedClient,
-      R: Reboot,
+where
+    T: TrussedClient,
+    R: Reboot,
 {
     pub fn new(client: T, uuid: [u8; 16], version: u32) -> Self {
-        Self { trussed: client, uuid, version, boot_interface: PhantomData }
+        Self {
+            trussed: client,
+            uuid,
+            version,
+            boot_interface: PhantomData,
+        }
     }
 
     fn user_present(&mut self) -> bool {
         let user_present = syscall!(self.trussed.confirm_user_present(15_000)).result;
         user_present.is_ok()
     }
-
-
 }
 
 impl<T, R> hid::App for App<T, R>
-where T: TrussedClient,
-      R: Reboot
+where
+    T: TrussedClient,
+    R: Reboot,
 {
     fn commands(&self) -> &'static [HidCommand] {
         &[
@@ -74,14 +77,19 @@ where T: TrussedClient,
         ]
     }
 
-    fn call(&mut self, command: HidCommand, input_data: &Message, response: &mut Message) -> hid::AppResult {
+    fn call(
+        &mut self,
+        command: HidCommand,
+        input_data: &Message,
+        response: &mut Message,
+    ) -> hid::AppResult {
         match command {
             HidCommand::Vendor(REBOOT) => R::reboot(),
             HidCommand::Vendor(RNG) => {
                 // Fill the HID packet (57 bytes)
-                response.extend_from_slice(
-                    &syscall!(self.trussed.random_bytes(57)).bytes.as_slice()
-                ).ok();
+                response
+                    .extend_from_slice(&syscall!(self.trussed.random_bytes(57)).bytes.as_slice())
+                    .ok();
             }
             HidCommand::Vendor(UPDATE) => {
                 if self.user_present() {
@@ -114,41 +122,50 @@ where T: TrussedClient,
 }
 
 impl<T, R> iso7816::App for App<T, R>
-where T: TrussedClient,
-      R: Reboot
+where
+    T: TrussedClient,
+    R: Reboot,
 {
     // Solo management app
     fn aid(&self) -> iso7816::Aid {
-        iso7816::Aid::new(&[ 0xA0, 0x00, 0x00, 0x08, 0x47, 0x00, 0x00, 0x00, 0x01])
+        iso7816::Aid::new(&[0xA0, 0x00, 0x00, 0x08, 0x47, 0x00, 0x00, 0x00, 0x01])
     }
 }
 
-impl<T, R> apdu::App<{command::SIZE}, {response::SIZE}> for App<T, R>
-where T: TrussedClient,
-      R: Reboot
+impl<T, R> apdu::App<{ command::SIZE }, { response::SIZE }> for App<T, R>
+where
+    T: TrussedClient,
+    R: Reboot,
 {
-
     fn select(&mut self, _apdu: &Command, _reply: &mut response::Data) -> apdu::Result {
         Ok(())
     }
 
     fn deselect(&mut self) {}
 
-    fn call(&mut self, interface: apdu::Interface, apdu: &Command, reply: &mut response::Data) -> apdu::Result {
+    fn call(
+        &mut self,
+        interface: apdu::Interface,
+        apdu: &Command,
+        reply: &mut response::Data,
+    ) -> apdu::Result {
         let instruction: u8 = apdu.instruction().into();
 
-        let command: VendorCommand = instruction.try_into().map_err(|_e| Status::InstructionNotSupportedOrInvalid)?;
+        let command: VendorCommand = instruction
+            .try_into()
+            .map_err(|_e| Status::InstructionNotSupportedOrInvalid)?;
 
         match command {
             REBOOT => R::reboot(),
             RNG => {
                 // Random bytes
-                reply.extend_from_slice(&syscall!(self.trussed.random_bytes(57)).bytes.as_slice()).ok();
+                reply
+                    .extend_from_slice(&syscall!(self.trussed.random_bytes(57)).bytes.as_slice())
+                    .ok();
             }
             UPDATE => {
                 // Boot to mcuboot (only when contact interface)
-                if interface == apdu::Interface::Contact && self.user_present()
-                {
+                if interface == apdu::Interface::Contact && self.user_present() {
                     if apdu.p1 == 0x01 {
                         R::reboot_to_firmware_update_destructive();
                     } else {
@@ -163,14 +180,13 @@ where T: TrussedClient,
             }
             VERSION => {
                 // Get version
-                reply.extend_from_slice(&self.version.to_be_bytes()[..]).ok();
+                reply
+                    .extend_from_slice(&self.version.to_be_bytes()[..])
+                    .ok();
             }
 
             _ => return Err(Status::InstructionNotSupportedOrInvalid),
-
         }
         Ok(())
-
     }
 }
-
