@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apdu-dispatch = "0.1"
+apdu-dispatch = { git = "https://github.com/All-Your-Locks-Are-Belong-To-Us/apdu-dispatch", rev = "db6a9e5fed3c1d9ad62f43057ebf5e8951a11d9b" }
 ctaphid-dispatch = { git = "https://github.com/All-Your-Locks-Are-Belong-To-Us/ctaphid-dispatch" }
 iso7816 = "0.1"
 trussed = { git = "https://github.com/trussed-dev/trussed" }
